@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nota - Öğrenci Not Paylaşım Platformu</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <!-- Firebase App, Auth & Firestore CDN -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBpX9LxAn9dp0UeGdBQ_MR6-bYlwoeexEU",
+      authDomain: "sinavnotlari.firebaseapp.com",
+      projectId: "sinavnotlari",
+      storageBucket: "sinavnotlari.firebasestorage.app",
+      messagingSenderId: "911209455642",
+      appId: "1:911209455642:web:e3acde1c71ff2bf3b3f1a3",
+      measurementId: "G-4220J0YBVZ"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    window.firebaseServices = {
+      db, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy,
+      auth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged
+    };
+    window.firebaseReady = true;
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
+
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #020617; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-200">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const Icon = ({ name, className = "w-4 h-4" }) => {
+      const spanRef = useRef(null);
+      useEffect(() => {
+        if (window.lucide && spanRef.current) {
+          spanRef.current.innerHTML = `<i data-lucide="${name}" class="${className}"></i>`;
+          window.lucide.createIcons({ root: spanRef.current });
+        }
+      }, [name, className]);
+      return <span ref={spanRef} className="inline-flex items-center justify-center shrink-0" aria-hidden="true" />;
+    };
+
+    const SUBJECTS = ['Matematik', 'Fizik', 'Kimya', 'Biyoloji', 'Türkçe', 'Tarih', 'Coğrafya', 'İngilizce', 'Diğer'];
+    const EXAM_TYPES = ['YKS', 'KPSS', 'LGS', 'Üniversite Vize', 'Üniversite Final', 'Diğer'];
+
+    const getTurkishAuthError = (code) => {
+      switch (code) {
+        case 'auth/invalid-email': return 'Geçersiz bir e-posta adresi girdiniz.';
+        case 'auth/user-disabled': return 'Bu hesap devre dışı bırakılmış.';
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential': return 'E-posta adresi veya şifre hatalı.';
+        case 'auth/email-already-in-use': return 'Bu e-posta adresi zaten kullanımda.';
+        case 'auth/weak-password': return 'Şifre en az 6 karakter olmalıdır.';
+        default: return 'İşlem sırasında bir hata oluştu. Tekrar deneyin.';
+      }
+    };
+
+    function App() {
+      const [user, setUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+      const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+      const [authMode, setAuthMode] = useState('login');
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [authError, setAuthError] = useState('');
+      const [authSubmitting, setAuthSubmitting] = useState(false);
+
+      const [notes, setNotes] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [selectedNote, setSelectedNote] = useState(null);
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+      const [title, setTitle] = useState('');
+      const [subject, setSubject] = useState(SUBJECTS[0]);
+      const [examType, setExamType] = useState(EXAM_TYPES[0]);
+      const [content, setContent] = useState('');
+      const [formError, setFormError] = useState('');
+      const [isSubmitting, setIsSubmitting] = useState(false);
+
+      useEffect(() => {
+        let unsubNotes = null;
+        let unsubAuth = null;
+
+        const init = () => {
+          if (!window.firebaseReady || !window.firebaseServices) return;
+          const { db, collection, onSnapshot, query, orderBy, auth, onAuthStateChanged } = window.firebaseServices;
+
+          unsubAuth = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser);
+            setAuthLoading(false);
+          });
+
+          const q = query(collection(db, 'notes'), orderBy('createdAt', 'desc'));
+          unsubNotes = onSnapshot(q, (snapshot) => {
+            const notesData = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+            setNotes(notesData);
+            setLoading(false);
+          }, (error) => {
+            console.error("Firestore okuma hatası:", error);
+            setLoading(false);
+          });
+        };
+
+        if (window.firebaseReady) {
+          init();
+        } else {
+          window.addEventListener('firebase-ready', init);
+        }
+
+        return () => {
+          window.removeEventListener('firebase-ready', init);
+          if (unsubNotes) unsubNotes();
+          if (unsubAuth) unsubAuth();
+        };
+      }, []);
+
+      const handleAuthSubmit = async (e) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthSubmitting(true);
+
+        try {
+          const { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword } = window.firebaseServices;
+          if (authMode === 'login') {
+            await signInWithEmailAndPassword(auth, email.trim(), password);
+          } else {
+            await createUserWithEmailAndPassword(auth, email.trim(), password);
+          }
+          closeAuthModal();
+        } catch (error) {
+          setAuthError(getTurkishAuthError(error.code));
+        } finally {
+          setAuthSubmitting(false);
+        }
+      };
+
+      const handleLogout = async () => {
+        try {
+          const { auth, signOut } = window.firebaseServices;
+          await signOut(auth);
+        } catch (error) {
+          console.error("Çıkış hatası:", error);
+        }
+      };
+
+      const closeAuthModal = () => {
+        setIsAuthModalOpen(false);
+        setEmail('');
+        setPassword('');
+        setAuthError('');
+      };
+
+      const openAddNoteModal = () => {
+        if (!user) {
+          setAuthMode('login');
+          setIsAuthModalOpen(true);
+          return;
+        }
+        setIsModalOpen(true);
+      };
+
+      const formatDate = (timestamp) => {
+        try {
+          if (!timestamp) return '';
+          const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+          return date.toLocaleDateString('tr-TR', {
+            day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+          });
+        } catch (e) {
+          return '';
+        }
+      };
+
+      const handleAddNote = async (e) => {
+        e.preventDefault();
+        if (!title.trim()) {
+          setFormError('Lütfen bir not başlığı girin.');
+          return;
+        }
+        if (!user) {
+          setFormError('Not eklemek için giriş yapmalısınız.');
+          return;
+        }
+
+        setIsSubmitting(true);
+        try {
+          const { db, collection, addDoc } = window.firebaseServices;
+          await addDoc(collection(db, 'notes'), {
+            title: title.trim(),
+            subject,
+            examType,
+            content: content.trim(),
+            createdAt: new Date().toISOString(),
+            userId: user.uid,
+            authorEmail: user.email
+          });
+          closeModal();
+        } catch (error) {
+          console.error("Not eklenirken hata:", error);
+          setFormError('Not kaydedilemedi: ' + error.message);
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
+
+      const closeModal = () => {
+        setIsModalOpen(false);
+        setTitle('');
+        setSubject(SUBJECTS[0]);
+        setExamType(EXAM_TYPES[0]);
+        setContent('');
+        setFormError('');
+      };
+
+      const handleDeleteNote = async (id) => {
+        try {
+          const { db, doc, deleteDoc } = window.firebaseServices;
+          await deleteDoc(doc(db, 'notes', id));
+          setConfirmDeleteId(null);
+          if (selectedNote && selectedNote.id === id) {
+            setSelectedNote(null);
+          }
+        } catch (error) {
+          console.error("Not silinirken hata:", error);
+        }
+      };
+
+      const filteredNotes = notes.filter((note) => {
+        const query = searchQuery.toLowerCase();
+        return (
+          (note.title && note.title.toLowerCase().includes(query)) ||
+          (note.content && note.content.toLowerCase().includes(query))
+        );
+      });
+
+      const getAuthorName = (emailStr) => {
+        if (!emailStr) return 'Anonim';
+        return emailStr.split('@')[0];
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+          <header className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-md border-b border-slate-800">
+            <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
+              <div 
+                onClick={() => { setSelectedNote(null); setConfirmDeleteId(null); }}
+                className="flex items-center gap-2 cursor-pointer group shrink-0"
+              >
+                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-sm group-hover:bg-indigo-500 transition-colors">
+                  N
+                </div>
+                <span className="text-xl font-bold tracking-tight text-slate-100">Nota</span>
+              </div>
+
+              <div className="flex items-center gap-2 sm:gap-3">
+                {!authLoading && (
+                  user ? (
+                    <div className="flex items-center gap-2">
+                      <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-lg">
+                        <Icon name="user" className="w-3.5 h-3.5 text-indigo-400" />
+                        <span className="max-w-[120px] truncate">{getAuthorName(user.email)}</span>
+                      </span>
+                      <button
+                        onClick={handleLogout}
+                        title="Çıkış Yap"
+                        className="flex items-center gap-1 text-slate-400 hover:text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium px-2.5 py-2 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Icon name="log-out" className="w-3.5 h-3.5" />
+                        <span className="hidden xs:inline">Çıkış</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setAuthMode('login'); setIsAuthModalOpen(true); }}
+                      className="flex items-center gap-1.5 text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Icon name="log-in" className="w-4 h-4" />
+                      <span>Giriş Yap</span>
+                    </button>
+                  )
+                )}
+
+                <button
+                  onClick={openAddNoteModal}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs sm:text-sm font-medium px-3 sm:px-3.5 py-2 rounded-lg transition-colors cursor-pointer shadow-lg shadow-indigo-600/20"
+                >
+                  <Icon name="plus" className="w-4 h-4" />
+                  <span>Not Ekle</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-4xl w-full mx-auto px-4 py-6 sm:py-8 flex-1">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-24">
+                <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                <p className="text-slate-400 text-sm">Notlar yükleniyor...</p>
+              </div>
+            ) : selectedNote ? (
+              <div className="animate-fade-in">
+                <div className="flex items-center justify-between gap-4 mb-6">
+                  <button
+                    onClick={() => { setSelectedNote(null); setConfirmDeleteId(null); }}
+                    className="flex items-center gap-2 text-slate-400 hover:text-slate-100 text-sm font-medium py-1.5 px-2.5 -ml-2.5 rounded-lg hover:bg-slate-900 transition-colors cursor-pointer"
+                  >
+                    <Icon name="arrow-left" className="w-4 h-4" />
+                    <span>Geri</span>
+                  </button>
+
+                  {user && selectedNote.userId === user.uid && (
+                    confirmDeleteId === selectedNote.id ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400">Emin misin?</span>
+                        <button
+                          onClick={() => handleDeleteNote(selectedNote.id)}
+                          className="bg-red-600 hover:bg-red-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
+                          Evet, Sil
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
+                          Vazgeç
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(selectedNote.id)}
+                        className="flex items-center gap-1.5 text-red-400 hover:text-red-300 hover:bg-red-950/50 text-sm font-medium px-3 py-1.5 rounded-lg border border-transparent hover:border-red-900/50 transition-colors cursor-pointer"
+                      >
+                        <Icon name="trash-2" className="w-4 h-4" />
+                        <span>Sil</span>
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <article className="bg-slate-900 border border-slate-800 rounded-xl p-5 sm:p-8 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2 mb-4">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      <Icon name="book-open" className="w-3.5 h-3.5" />
+                      {selectedNote.subject}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                      <Icon name="tag" className="w-3.5 h-3.5" />
+                      {selectedNote.examType}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-slate-800/60 text-slate-400 border border-slate-800">
+                      <Icon name="user" className="w-3.5 h-3.5" />
+                      {getAuthorName(selectedNote.authorEmail)}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 sm:ml-auto">
+                      <Icon name="calendar" className="w-3.5 h-3.5" />
+                      {formatDate(selectedNote.createdAt)}
+                    </span>
+                  </div>
+
+                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-6 pb-4 border-b border-slate-800 leading-snug">
+                    {selectedNote.title}
+                  </h1>
+
+                  {selectedNote.content ? (
+                    <div className="text-slate-300 text-base leading-relaxed whitespace-pre-wrap break-words">
+                      {selectedNote.content}
+                    </div>
+                  ) : (
+                    <p className="text-slate-500 italic text-sm">Bu not için içerik girilmemiş.</p>
+                  )}
+                </article>
+              </div>
+            ) : (
+              <div className="animate-fade-in">
+                <div className="relative mb-6">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none flex items-center">
+                    <Icon name="search" className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Paylaşılan notlarda ara..."
+                    className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl pl-10 pr-10 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1 cursor-pointer"
+                    >
+                      <Icon name="x" className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {notes.length === 0 ? (
+                  <div className="text-center py-16 px-4 bg-slate-900/50 border border-slate-800 border-dashed rounded-xl">
+                    <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto mb-3 text-slate-500">
+                      <Icon name="file-text" className="w-6 h-6" />
+                    </div>
+                    <p className="text-slate-200 font-medium mb-1">Henüz not yok, ilk notu sen ekle</p>
+                    <p className="text-slate-500 text-sm mb-5">Giriş yaparak ders notlarını diğer öğrencilerle paylaşabilirsin.</p>
+                    <button
+                      onClick={openAddNoteModal}
+                      className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Icon name="plus" className="w-4 h-4" />
+                      <span>İlk Notu Oluştur</span>
+                    </button>
+                  </div>
+                ) : filteredNotes.length === 0 ? (
+                  <div className="text-center py-14 px-4 bg-slate-900/50 border border-slate-800 rounded-xl">
+                    <p className="text-slate-200 font-medium mb-1">Aramanızla eşleşen not bulunamadı</p>
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="mt-3 inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Aramayı Temizle
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {filteredNotes.map((note) => (
+                      <div
+                        key={note.id}
+                        onClick={() => setSelectedNote(note)}
+                        className="group bg-slate-900 hover:bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-xl p-5 flex flex-col justify-between transition-all cursor-pointer"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <span className="text-xs font-medium px-2.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                              {note.subject}
+                            </span>
+                            <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/60">
+                              {note.examType}
+                            </span>
+                          </div>
+
+                          <h2 className="text-base font-semibold text-slate-100 group-hover:text-indigo-300 transition-colors mb-2 line-clamp-1">
+                            {note.title}
+                          </h2>
+
+                          <p className="text-sm text-slate-400 line-clamp-3 leading-relaxed mb-4">
+                            {note.content || 'İçerik yok...'}
+                          </p>
+                        </div>
+
+                        <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-slate-400 font-medium truncate max-w-[100px]">
+                              @{getAuthorName(note.authorEmail)}
+                            </span>
+                            <span>•</span>
+                            <span>{formatDate(note.createdAt)}</span>
+                          </div>
+                          <span className="text-slate-400 group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all shrink-0">
+                            Oku &rarr;
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </main>
+
+          {isAuthModalOpen && (
+            <div 
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+              onClick={closeAuthModal}
+            >
+              <div 
+                className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-sm overflow-hidden shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-100">
+                    {authMode === 'login' ? 'Giriş Yap' : 'Hesap Oluştur'}
+                  </h3>
+                  <button
+                    onClick={closeAuthModal}
+                    className="text-slate-400 hover:text-slate-100 p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAuthSubmit} className="p-5 space-y-4">
+                  {authError && (
+                    <div className="flex items-center gap-2 text-xs text-red-400 bg-red-950/50 border border-red-900/60 px-3 py-2.5 rounded-lg">
+                      <Icon name="alert-circle" className="w-4 h-4" />
+                      <span>{authError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">E-posta</label>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="ornek@ogrenci.com"
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none transition-colors"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Şifre</label>
+                    <input
+                      type="password"
+                      required
+                      minLength="6"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="En az 6 karakter"
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none transition-colors"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={authSubmitting}
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {authSubmitting 
+                      ? 'Lütfen bekleyin...' 
+                      : (authMode === 'login' ? 'Giriş Yap' : 'Kayıt Ol')}
+                  </button>
+
+                  <div className="pt-2 text-center border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode(authMode === 'login' ? 'register' : 'login');
+                        setAuthError('');
+                      }}
+                      className="text-xs text-slate-400 hover:text-indigo-400 transition-colors cursor-pointer"
+                    >
+                      {authMode === 'login' 
+                        ? 'Hesabın yok mu? Hemen Kayıt Ol' 
+                        : 'Zaten hesabın var mı? Giriş Yap'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {isModalOpen && (
+            <div 
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+              onClick={closeModal}
+            >
+              <div 
+                className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-lg overflow-hidden shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+                  <h3 className="text-lg font-semibold text-slate-100">Yeni Not Ekle</h3>
+                  <button
+                    onClick={closeModal}
+                    className="text-slate-400 hover:text-slate-100 p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleAddNote} className="p-5 space-y-4">
+                  {formError && (
+                    <div className="flex items-center gap-2 text-xs text-red-400 bg-red-950/50 border border-red-900/60 px-3 py-2.5 rounded-lg">
+                      <Icon name="alert-circle" className="w-4 h-4" />
+                      <span>{formError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Başlık <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => { setTitle(e.target.value); if (formError) setFormError(''); }}
+                      placeholder="Örn: Üslü Sayılar Özet"
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-3.5 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none transition-colors"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">Ders</label>
+                      <select
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none transition-colors cursor-pointer"
+                      >
+                        {SUBJECTS.map((subj) => (<option key={subj} value={subj}>{subj}</option>))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">Sınav Türü</label>
+                      <select
+                        value={examType}
+                        onChange={(e) => setExamType(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none transition-colors cursor-pointer"
+                      >
+                        {EXAM_TYPES.map((type) => (<option key={type} value={type}>{type}</option>))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">İçerik</label>
+                    <textarea
+                      rows="5"
+                      value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      placeholder="Notlarını buraya yaz..."
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-lg px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 outline-none transition-colors resize-y"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={closeModal}
+                      className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                    >
+                      İptal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {isSubmitting ? 'Kaydediliyor...' : 'Kaydet'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const rootElement = document.getElementById('root');
+    const root = ReactDOM.createRoot(rootElement);
+    root.render(<App />);
+  </script>
+</body>
+</html>
