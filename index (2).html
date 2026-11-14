@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nota - Öğrenci Not Paylaşım Platformu</title>
+
+  <!-- GÜVENLİK UYARISI: Firebase config değerlerini (apiKey vb.) ortam değişkenlerine
+  taşıyın ve Firestore Security Rules tanımlayın. -->
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: {
+              50:  '#eef2ff',
+              100: '#e0e7ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.min.js"></script>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBpX9LxAn9dp0UeGdBQ_MR6-bYlwoeexEU",
+      authDomain: "sinavnotlari.firebaseapp.com",
+      projectId: "sinavnotlari",
+      storageBucket: "sinavnotlari.firebasestorage.app",
+      messagingSenderId: "911209455642",
+      appId: "1:911209455642:web:e3acde1c71ff2bf3b3f1a3",
+      measurementId: "G-4220J0YBVZ"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    window.firebaseServices = {
+      db, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp,
+      auth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged
+    };
+    window.firebaseReady = true;
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
+
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes scaleIn {
+      from { opacity: 0; transform: scale(0.97); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    .animate-fade-in  { animation: fadeIn  0.22s ease-out forwards; }
+    .animate-scale-in { animation: scaleIn 0.18s ease-out forwards; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* smooth theme transition */
+    *, *::before, *::after { transition-property: background-color, border-color, color; transition-duration: 150ms; }
+
+    .chip-active-mat   { background: #1e3a5f; color: #60a5fa; border-color: #2563eb55; }
+    .chip-active-fiz   { background: #3b1f5e; color: #c084fc; border-color: #9333ea55; }
+    .chip-active-kim   { background: #14402a; color: #4ade80; border-color: #16a34a55; }
+    .chip-active-bio   { background: #1a3c2e; color: #34d399; border-color: #059669aa; }
+    .chip-active-tur   { background: #3d1f1f; color: #f87171; border-color: #dc262655; }
+    .chip-active-tar   { background: #3d2a10; color: #fb923c; border-color: #ea580c55; }
+    .chip-active-cog   { background: #1e3a30; color: #2dd4bf; border-color: #0d948455; }
+    .chip-active-ing   { background: #1e3450; color: #38bdf8; border-color: #0284c755; }
+    .chip-active-dig   { background: #2d2d2d; color: #94a3b8; border-color: #47556955; }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-700 dark:selection:text-indigo-200">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    /* ── Icon helper ─────────────────────────────────────── */
+    const Icon = ({ name, className = "w-4 h-4" }) => {
+      const ref = useRef(null);
+      useEffect(() => {
+        if (window.lucide && ref.current) {
+          ref.current.innerHTML = `<i data-lucide="${name}" class="${className}"></i>`;
+          window.lucide.createIcons({ root: ref.current });
+        }
+      }, [name, className]);
+      return <span ref={ref} className="inline-flex items-center justify-center shrink-0" aria-hidden="true" />;
+    };
+
+    /* ── Constants ───────────────────────────────────────── */
+    const SUBJECTS = ['Matematik','Fizik','Kimya','Biyoloji','Türkçe','Tarih','Coğrafya','İngilizce','Diğer'];
+    const EXAM_TYPES = ['YKS','KPSS','LGS','Üniversite Vize','Üniversite Final','Diğer'];
+
+    /* renk mapping – ders → tailwind renk token'ı */
+    const SUBJECT_COLORS = {
+      'Matematik':  { bg:'bg-blue-500/10',    text:'text-blue-400',    border:'border-blue-500/20',    dot:'bg-blue-400'    },
+      'Fizik':      { bg:'bg-purple-500/10',  text:'text-purple-400',  border:'border-purple-500/20',  dot:'bg-purple-400'  },
+      'Kimya':      { bg:'bg-green-500/10',   text:'text-green-400',   border:'border-green-500/20',   dot:'bg-green-400'   },
+      'Biyoloji':   { bg:'bg-emerald-500/10', text:'text-emerald-400', border:'border-emerald-500/20', dot:'bg-emerald-400' },
+      'Türkçe':     { bg:'bg-red-500/10',     text:'text-red-400',     border:'border-red-500/20',     dot:'bg-red-400'     },
+      'Tarih':      { bg:'bg-orange-500/10',  text:'text-orange-400',  border:'border-orange-500/20',  dot:'bg-orange-400'  },
+      'Coğrafya':   { bg:'bg-teal-500/10',    text:'text-teal-400',    border:'border-teal-500/20',    dot:'bg-teal-400'    },
+      'İngilizce':  { bg:'bg-sky-500/10',     text:'text-sky-400',     border:'border-sky-500/20',     dot:'bg-sky-400'     },
+      'Diğer':      { bg:'bg-slate-500/10',   text:'text-slate-400',   border:'border-slate-500/20',   dot:'bg-slate-400'   },
+    };
+
+    const getColor = (subject) => SUBJECT_COLORS[subject] || SUBJECT_COLORS['Diğer'];
+
+    /* ── Auth error helper ───────────────────────────────── */
+    const getTurkishAuthError = (code) => {
+      switch (code) {
+        case 'auth/invalid-email':       return 'Geçersiz bir e-posta adresi girdiniz.';
+        case 'auth/user-disabled':       return 'Bu hesap devre dışı bırakılmış.';
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':  return 'E-posta adresi veya şifre hatalı.';
+        case 'auth/email-already-in-use':return 'Bu e-posta adresi zaten kullanımda.';
+        case 'auth/weak-password':       return 'Şifre en az 6 karakter olmalıdır.';
+        default:                         return 'İşlem sırasında bir hata oluştu. Tekrar deneyin.';
+      }
+    };
+
+    /* ── Date formatter ──────────────────────────────────── */
+    const formatDate = (timestamp) => {
+      try {
+        if (!timestamp) return '';
+        const date = typeof timestamp.toDate === 'function'
+          ? timestamp.toDate()
+          : new Date(timestamp);
+        if (isNaN(date.getTime())) return '';
+        return date.toLocaleDateString('tr-TR', {
+          day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'
+        });
+      } catch { return ''; }
+    };
+
+    /* ── Reading time ────────────────────────────────────── */
+    const readingTime = (text) => {
+      if (!text || !text.trim()) return null;
+      const words = text.trim().split(/\s+/).length;
+      const mins  = Math.max(1, Math.round(words / 200));
+      return `~${mins} dk okuma`;
+    };
+
+    /* ── hasContent ──────────────────────────────────────── */
+    const hasContent = (t) => t && t.trim() !== '';
+
+    /* ── Author name ─────────────────────────────────────── */
+    const getAuthorName = (emailStr) => {
+      if (!emailStr) return 'Anonim';
+      return emailStr.split('@')[0];
+    };
+
+    /* ══════════════════════════════════════════════════════
+       APP
+    ══════════════════════════════════════════════════════ */
+    function App() {
+      /* theme */
+      const [isDark, setIsDark] = useState(() => {
+        try { return localStorage.getItem('nota-theme') !== 'light'; } catch { return true; }
+      });
+
+      useEffect(() => {
+        document.documentElement.classList.toggle('dark', isDark);
+        try { localStorage.setItem('nota-theme', isDark ? 'dark' : 'light'); } catch {}
+      }, [isDark]);
+
+      /* auth */
+      const [user,           setUser]           = useState(null);
+      const [authLoading,    setAuthLoading]    = useState(true);
+      const [isAuthOpen,     setIsAuthOpen]     = useState(false);
+      const [authMode,       setAuthMode]       = useState('login');
+      const [email,          setEmail]          = useState('');
+      const [password,       setPassword]       = useState('');
+      const [authError,      setAuthError]      = useState('');
+      const [authSubmitting, setAuthSubmitting] = useState(false);
+
+      /* notes */
+      const [notes,          setNotes]          = useState([]);
+      const [loading,        setLoading]        = useState(true);
+      const [searchQuery,    setSearchQuery]    = useState('');
+      const [activeSubject,  setActiveSubject]  = useState('Tümü');
+      const [selectedNote,   setSelectedNote]   = useState(null);
+      const [confirmDeleteId,setConfirmDeleteId]= useState(null);
+      const [copySuccess,    setCopySuccess]    = useState(false);
+
+      /* add note form */
+      const [isModalOpen,  setIsModalOpen]  = useState(false);
+      const [title,        setTitle]        = useState('');
+      const [subject,      setSubject]      = useState(SUBJECTS[0]);
+      const [examType,     setExamType]     = useState(EXAM_TYPES[0]);
+      const [content,      setContent]      = useState('');
+      const [formError,    setFormError]    = useState('');
+      const [isSubmitting, setIsSubmitting] = useState(false);
+
+      /* focus refs */
+      const authEmailRef  = useRef(null);
+      const noteTitleRef  = useRef(null);
+
+      useEffect(() => {
+        if (isAuthOpen)   setTimeout(() => authEmailRef.current?.focus(),  50);
+      }, [isAuthOpen]);
+      useEffect(() => {
+        if (isModalOpen)  setTimeout(() => noteTitleRef.current?.focus(), 50);
+      }, [isModalOpen]);
+
+      /* firebase init */
+      useEffect(() => {
+        let unsubNotes = null, unsubAuth = null;
+        const init = () => {
+          if (!window.firebaseReady || !window.firebaseServices) return;
+          const { db, collection, onSnapshot, query, orderBy, auth, onAuthStateChanged } = window.firebaseServices;
+          unsubAuth = onAuthStateChanged(auth, u => { setUser(u); setAuthLoading(false); });
+          const q = query(collection(db, 'notes'), orderBy('createdAt', 'desc'));
+          unsubNotes = onSnapshot(q, snap => {
+            setNotes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setLoading(false);
+          }, err => { console.error(err); setLoading(false); });
+        };
+        window.firebaseReady ? init() : window.addEventListener('firebase-ready', init);
+        return () => {
+          window.removeEventListener('firebase-ready', init);
+          unsubNotes?.();
+          unsubAuth?.();
+        };
+      }, []);
+
+      /* auth actions */
+      const handleAuthSubmit = async (e) => {
+        e.preventDefault(); setAuthError(''); setAuthSubmitting(true);
+        try {
+          const { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword } = window.firebaseServices;
+          authMode === 'login'
+            ? await signInWithEmailAndPassword(auth, email.trim(), password)
+            : await createUserWithEmailAndPassword(auth, email.trim(), password);
+          closeAuthModal();
+        } catch (err) { setAuthError(getTurkishAuthError(err.code)); }
+        finally { setAuthSubmitting(false); }
+      };
+
+      const handleLogout = async () => {
+        try { const { auth, signOut } = window.firebaseServices; await signOut(auth); }
+        catch (err) { console.error(err); }
+      };
+
+      const closeAuthModal = () => { setIsAuthOpen(false); setEmail(''); setPassword(''); setAuthError(''); };
+
+      /* open add note */
+      const openAddNoteModal = () => {
+        if (!user) { setAuthMode('login'); setIsAuthOpen(true); return; }
+        setIsModalOpen(true);
+      };
+
+      /* add note */
+      const handleAddNote = async (e) => {
+        e.preventDefault();
+        if (!title.trim()) { setFormError('Lütfen bir not başlığı girin.'); return; }
+        if (!user)         { setFormError('Not eklemek için giriş yapmalısınız.'); return; }
+        setIsSubmitting(true);
+        try {
+          const { db, collection, addDoc, serverTimestamp } = window.firebaseServices;
+          await addDoc(collection(db, 'notes'), {
+            title: title.trim(), subject, examType,
+            content: content.trim(),
+            createdAt: serverTimestamp(),
+            userId: user.uid, authorEmail: user.email
+          });
+          closeModal();
+        } catch (err) { setFormError('Not kaydedilemedi: ' + err.message); }
+        finally { setIsSubmitting(false); }
+      };
+
+      const closeModal = () => { setIsModalOpen(false); setTitle(''); setSubject(SUBJECTS[0]); setExamType(EXAM_TYPES[0]); setContent(''); setFormError(''); };
+
+      /* delete */
+      const handleDeleteNote = async (id) => {
+        try {
+          const { db, doc, deleteDoc } = window.firebaseServices;
+          await deleteDoc(doc(db, 'notes', id));
+          setConfirmDeleteId(null);
+          if (selectedNote?.id === id) setSelectedNote(null);
+        } catch (err) { console.error(err); }
+      };
+
+      /* share */
+      const handleShare = () => {
+        const url = window.location.href;
+        navigator.clipboard?.writeText(url).then(() => {
+          setCopySuccess(true);
+          setTimeout(() => setCopySuccess(false), 2000);
+        });
+      };
+
+      /* filter */
+      const usedSubjects = [...new Set(notes.map(n => n.subject).filter(Boolean))];
+
+      const filteredNotes = notes.filter(note => {
+        const q   = searchQuery.toLowerCase();
+        const matchSearch = !q || (note.title?.toLowerCase().includes(q) || note.content?.toLowerCase().includes(q));
+        const matchSubject = activeSubject === 'Tümü' || note.subject === activeSubject;
+        return matchSearch && matchSubject;
+      });
+
+      /* ── RENDER ───────────────────────────────────────── */
+      return (
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col pb-16 sm:pb-0">
+
+          {/* ── HEADER ── */}
+          <header className="sticky top-0 z-20 bg-white/80 dark:bg-slate-950/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
+            <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
+
+              {/* Logo */}
+              <div
+                onClick={() => { setSelectedNote(null); setConfirmDeleteId(null); }}
+                className="flex items-center gap-2 cursor-pointer group shrink-0"
+              >
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shadow-md shadow-indigo-600/30 group-hover:bg-indigo-500 transition-colors">
+                  N
+                </div>
+                <span className="text-xl font-bold tracking-tight">Nota</span>
+              </div>
+
+              {/* Right side */}
+              <div className="flex items-center gap-2">
+
+                {/* Theme toggle */}
+                <button
+                  onClick={() => setIsDark(d => !d)}
+                  title={isDark ? 'Açık tema' : 'Koyu tema'}
+                  className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <Icon name={isDark ? 'sun' : 'moon'} className="w-4 h-4" />
+                </button>
+
+                {!authLoading && (
+                  user ? (
+                    <div className="flex items-center gap-2">
+                      <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2.5 py-1.5 rounded-lg">
+                        <Icon name="user" className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                        <span className="max-w-[120px] truncate">{getAuthorName(user.email)}</span>
+                      </span>
+                      <button
+                        onClick={handleLogout}
+                        title="Çıkış Yap"
+                        className="flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs font-medium px-2.5 py-2 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Icon name="log-out" className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Çıkış</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setAuthMode('login'); setIsAuthOpen(true); }}
+                      className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Icon name="log-in" className="w-4 h-4" />
+                      <span>Giriş Yap</span>
+                    </button>
+                  )
+                )}
+
+                <button
+                  onClick={openAddNoteModal}
+                  className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs sm:text-sm font-medium px-3 sm:px-3.5 py-2 rounded-lg transition-colors cursor-pointer shadow-md shadow-indigo-600/25"
+                >
+                  <Icon name="plus" className="w-4 h-4" />
+                  <span>Not Ekle</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* ── MAIN ── */}
+          <main className="max-w-4xl w-full mx-auto px-4 py-6 sm:py-8 flex-1">
+
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-28">
+                <div className="w-9 h-9 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-slate-400 text-sm">Notlar yükleniyor...</p>
+              </div>
+
+            ) : selectedNote ? (
+              /* ── NOTE DETAIL ── */
+              <div className="animate-fade-in">
+                <div className="flex items-center justify-between gap-4 mb-6">
+                  <button
+                    onClick={() => { setSelectedNote(null); setConfirmDeleteId(null); }}
+                    className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 text-sm font-medium py-1.5 px-2.5 -ml-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                  >
+                    <Icon name="arrow-left" className="w-4 h-4" />
+                    <span>Geri</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    {/* Share button */}
+                    <button
+                      onClick={handleShare}
+                      title="Linki kopyala"
+                      className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-medium px-3 py-1.5 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-colors cursor-pointer"
+                    >
+                      <Icon name={copySuccess ? 'check' : 'share-2'} className="w-4 h-4" />
+                      <span className="hidden sm:inline">{copySuccess ? 'Kopyalandı!' : 'Paylaş'}</span>
+                    </button>
+
+                    {/* Delete */}
+                    {user && selectedNote.userId === user.uid && (
+                      confirmDeleteId === selectedNote.id ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">Emin misin?</span>
+                          <button
+                            onClick={() => handleDeleteNote(selectedNote.id)}
+                            className="bg-red-600 hover:bg-red-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                          >Evet, Sil</button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                          >Vazgeç</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(selectedNote.id)}
+                          className="flex items-center gap-1.5 text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/50 text-sm font-medium px-3 py-1.5 rounded-lg border border-transparent hover:border-red-200 dark:hover:border-red-900/50 transition-colors cursor-pointer"
+                        >
+                          <Icon name="trash-2" className="w-4 h-4" />
+                          <span>Sil</span>
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <article className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-8 shadow-sm">
+                  {/* badges */}
+                  <div className="flex flex-wrap items-center gap-2 mb-5">
+                    {(() => { const c = getColor(selectedNote.subject); return (
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${c.bg} ${c.text} border ${c.border}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`}></span>
+                        {selectedNote.subject}
+                      </span>
+                    ); })()}
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      <Icon name="tag" className="w-3 h-3" />
+                      {selectedNote.examType}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 sm:ml-auto">
+                      <Icon name="user" className="w-3 h-3" />
+                      @{getAuthorName(selectedNote.authorEmail)}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                      <Icon name="calendar" className="w-3 h-3" />
+                      {formatDate(selectedNote.createdAt)}
+                    </span>
+                    {readingTime(selectedNote.content) && (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                        <Icon name="clock" className="w-3 h-3" />
+                        {readingTime(selectedNote.content)}
+                      </span>
+                    )}
+                  </div>
+
+                  <h1 className="text-2xl sm:text-3xl font-bold mb-6 pb-5 border-b border-slate-100 dark:border-slate-800 leading-snug">
+                    {selectedNote.title}
+                  </h1>
+
+                  {hasContent(selectedNote.content) ? (
+                    <div className="text-slate-700 dark:text-slate-300 text-base leading-relaxed whitespace-pre-wrap break-words">
+                      {selectedNote.content}
+                    </div>
+                  ) : (
+                    <p className="text-slate-400 italic text-sm">Bu not için içerik girilmemiş.</p>
+                  )}
+                </article>
+              </div>
+
+            ) : (
+              /* ── NOTE LIST ── */
+              <div className="animate-fade-in">
+
+                {/* ── HERO (sadece not yokken veya ilk yüklemede göster) ── */}
+                {notes.length === 0 ? (
+                  <div className="text-center py-16 px-6 mb-2">
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-600 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-5 shadow-xl shadow-indigo-600/30">N</div>
+                    <h1 className="text-2xl sm:text-3xl font-bold mb-3">Öğrenci notlarını paylaş,<br/>birlikte öğren.</h1>
+                    <p className="text-slate-500 dark:text-slate-400 text-base mb-8 max-w-sm mx-auto">
+                      Ders notlarını paylaş, diğer öğrencilerin notlarından yararlan.
+                    </p>
+                    <button
+                      onClick={openAddNoteModal}
+                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors cursor-pointer shadow-lg shadow-indigo-600/25"
+                    >
+                      <Icon name="plus" className="w-4 h-4" />
+                      İlk Notu Oluştur
+                    </button>
+                  </div>
+                ) : (
+                  /* ── HERO (notlar varken – mini stats) ── */
+                  <div className="mb-7 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+                    <div>
+                      <h1 className="text-xl font-bold">Paylaşılan Notlar</h1>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span className="font-semibold text-indigo-500">{notes.length}</span> not · {[...new Set(notes.map(n=>n.subject))].length} ders
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {notes.length > 0 && (
+                  <>
+                    {/* Search */}
+                    <div className="relative mb-4">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none flex items-center">
+                        <Icon name="search" className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Notlarda ara..."
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl pl-10 pr-10 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition-all shadow-sm"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 cursor-pointer"
+                        >
+                          <Icon name="x" className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Subject filter chips */}
+                    {usedSubjects.length > 1 && (
+                      <div className="flex gap-2 overflow-x-auto pb-2 mb-5 scrollbar-hide" style={{scrollbarWidth:'none'}}>
+                        {['Tümü', ...usedSubjects].map(subj => {
+                          const isActive = activeSubject === subj;
+                          const c = subj !== 'Tümü' ? getColor(subj) : null;
+                          return (
+                            <button
+                              key={subj}
+                              onClick={() => setActiveSubject(subj)}
+                              className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-all cursor-pointer whitespace-nowrap
+                                ${isActive
+                                  ? subj === 'Tümü'
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
+                                    : `${c.bg} ${c.text} ${c.border}`
+                                  : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                                }`}
+                            >
+                              {c && isActive && <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`}></span>}
+                              {subj}
+                              {subj !== 'Tümü' && (
+                                <span className={`text-[10px] ${isActive ? 'opacity-80' : 'opacity-50'}`}>
+                                  {notes.filter(n => n.subject === subj).length}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Results */}
+                    {filteredNotes.length === 0 ? (
+                      <div className="text-center py-14 px-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl">
+                        <p className="text-slate-600 dark:text-slate-200 font-medium mb-1">Eşleşen not bulunamadı</p>
+                        <p className="text-slate-400 text-sm mb-4">Farklı bir arama deneyin veya filtreyi temizleyin.</p>
+                        <button
+                          onClick={() => { setSearchQuery(''); setActiveSubject('Tümü'); }}
+                          className="inline-flex items-center gap-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
+                        >
+                          Filtreleri Temizle
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {filteredNotes.map((note) => {
+                          const c = getColor(note.subject);
+                          return (
+                            <div
+                              key={note.id}
+                              onClick={() => setSelectedNote(note)}
+                              className="group bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-900/80 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-2xl p-5 flex flex-col justify-between transition-all cursor-pointer shadow-sm hover:shadow-md dark:shadow-none"
+                            >
+                              <div>
+                                <div className="flex items-center justify-between gap-2 mb-3">
+                                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${c.bg} ${c.text} border ${c.border}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`}></span>
+                                    {note.subject}
+                                  </span>
+                                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60">
+                                    {note.examType}
+                                  </span>
+                                </div>
+
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors mb-2 line-clamp-1">
+                                  {note.title}
+                                </h2>
+
+                                <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 leading-relaxed mb-4">
+                                  {hasContent(note.content) ? note.content : 'İçerik yok...'}
+                                </p>
+                              </div>
+
+                              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="text-slate-500 dark:text-slate-400 font-medium truncate max-w-[100px]">
+                                    @{getAuthorName(note.authorEmail)}
+                                  </span>
+                                  <span>·</span>
+                                  <span>{formatDate(note.createdAt)}</span>
+                                </div>
+                                <span className="text-slate-400 dark:text-slate-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all shrink-0">
+                                  Oku →
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </main>
+
+          {/* ── MOBILE BOTTOM NAV ── */}
+          <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-20 bg-white/90 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around px-2 py-2">
+            <button
+              onClick={() => { setSelectedNote(null); setConfirmDeleteId(null); }}
+              className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer
+                ${!selectedNote ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            >
+              <Icon name="home" className="w-5 h-5" />
+              <span>Ana Sayfa</span>
+            </button>
+            <button
+              onClick={() => !user ? (setAuthMode('login'), setIsAuthOpen(true)) : null}
+              className="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer"
+            >
+              <Icon name="user" className="w-5 h-5" />
+              <span>{user ? getAuthorName(user.email) : 'Giriş'}</span>
+            </button>
+            <button
+              onClick={openAddNoteModal}
+              className="flex flex-col items-center gap-0.5 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-1.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer shadow-lg shadow-indigo-600/30"
+            >
+              <Icon name="plus" className="w-5 h-5" />
+              <span>Ekle</span>
+            </button>
+          </nav>
+
+          {/* ── AUTH MODAL ── */}
+          {isAuthOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+              onClick={closeAuthModal}
+            >
+              <div
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl animate-scale-in"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold">{authMode === 'login' ? 'Giriş Yap' : 'Hesap Oluştur'}</h3>
+                  <button onClick={closeAuthModal} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+                <form onSubmit={handleAuthSubmit} className="p-5 space-y-4">
+                  {authError && (
+                    <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900/60 px-3 py-2.5 rounded-lg">
+                      <Icon name="alert-circle" className="w-4 h-4" />
+                      <span>{authError}</span>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">E-posta</label>
+                    <input
+                      ref={authEmailRef}
+                      type="email" required value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      placeholder="ornek@ogrenci.com"
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Şifre</label>
+                    <input
+                      type="password" required minLength="6" value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="En az 6 karakter"
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-colors"
+                    />
+                  </div>
+                  <button
+                    type="submit" disabled={authSubmitting}
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {authSubmitting ? 'Lütfen bekleyin...' : (authMode === 'login' ? 'Giriş Yap' : 'Kayıt Ol')}
+                  </button>
+                  <div className="pt-2 text-center border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => { setAuthMode(m => m === 'login' ? 'register' : 'login'); setAuthError(''); }}
+                      className="text-xs text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                    >
+                      {authMode === 'login' ? 'Hesabın yok mu? Hemen Kayıt Ol' : 'Zaten hesabın var mı? Giriş Yap'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* ── ADD NOTE MODAL ── */}
+          {isModalOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+              onClick={closeModal}
+            >
+              <div
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-scale-in"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+                  <h3 className="text-lg font-semibold">Yeni Not Ekle</h3>
+                  <button onClick={closeModal} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
+                </div>
+                <form onSubmit={handleAddNote} className="p-5 space-y-4">
+                  {formError && (
+                    <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900/60 px-3 py-2.5 rounded-lg">
+                      <Icon name="alert-circle" className="w-4 h-4" />
+                      <span>{formError}</span>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                      Başlık <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      ref={noteTitleRef}
+                      type="text" value={title}
+                      onChange={e => { setTitle(e.target.value); if (formError) setFormError(''); }}
+                      placeholder="Örn: Üslü Sayılar Özet"
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-colors"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Ders</label>
+                      <select
+                        value={subject} onChange={e => setSubject(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none transition-colors cursor-pointer"
+                      >
+                        {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Sınav Türü</label>
+                      <select
+                        value={examType} onChange={e => setExamType(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none transition-colors cursor-pointer"
+                      >
+                        {EXAM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">İçerik</label>
+                    <textarea
+                      rows="5" value={content}
+                      onChange={e => setContent(e.target.value)}
+                      placeholder="Notlarını buraya yaz..."
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-colors resize-y"
+                    />
+                    <p className="text-right text-xs text-slate-400 mt-1">{content.length} karakter</p>
+                  </div>
+                  <div className="flex items-center justify-end gap-2.5 pt-1">
+                    <button type="button" onClick={closeModal} className="px-4 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors cursor-pointer">
+                      İptal
+                    </button>
+                    <button
+                      type="submit" disabled={isSubmitting}
+                      className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold px-5 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-50 shadow-md shadow-indigo-600/25"
+                    >
+                      {isSubmitting ? 'Kaydediliyor...' : 'Kaydet'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
